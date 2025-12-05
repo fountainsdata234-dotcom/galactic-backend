@@ -40,4 +40,5 @@ def get_video():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+
 # For Vercel, we do NOT use app.run()
