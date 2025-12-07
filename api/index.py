@@ -4,7 +4,7 @@ import yt_dlp
 import ssl
 import certifi
 
-# Nuclear SSL Fix
+# Nuclear SSL Fix for Vercel
 try:
     _create_unverified_https_context = ssl._create_unverified_context
 except AttributeError:
@@ -13,9 +13,19 @@ else:
     ssl._create_default_https_context = _create_unverified_https_context
 
 app = Flask(__name__)
-# Enable CORS for ALL routes and ALL origins
+# Allow CORS for Netlify
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+# --- 1. THE HOME ROUTE (Fixes the "Not Found" on the main link) ---
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        "status": "Alive",
+        "message": "Galactic Backend is running successfully.",
+        "usage": "Send requests to /api/get-video?url=YOUR_VIDEO_URL"
+    })
+
+# --- 2. THE DOWNLOAD ROUTE ---
 @app.route('/api/get-video', methods=['GET'])
 def get_video():
     url = request.args.get('url')
@@ -52,16 +62,12 @@ def get_video():
                 'thumbnail': info.get('thumbnail', ''),
                 'download_url': download_url
             })
-            # Manually add CORS header just in case
-            response.headers.add('Access-Control-Allow-Origin', '*')
             return response
 
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# Contact route
+# --- 3. CONTACT ROUTE ---
 @app.route('/api/contact', methods=['POST'])
 def contact():
-    response = jsonify({'status': 'success', 'message': 'Message received'})
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    return response
+    return jsonify({'status': 'success', 'message': 'Message received'})
