@@ -4,7 +4,7 @@ import yt_dlp
 import ssl
 import certifi
 
-# Nuclear SSL Fix for Vercel
+# Nuclear SSL Fix
 try:
     _create_unverified_https_context = ssl._create_unverified_context
 except AttributeError:
@@ -13,19 +13,12 @@ else:
     ssl._create_default_https_context = _create_unverified_https_context
 
 app = Flask(__name__)
-# Allow CORS for Netlify
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# --- 1. THE HOME ROUTE (Fixes the "Not Found" on the main link) ---
 @app.route('/', methods=['GET'])
 def home():
-    return jsonify({
-        "status": "Alive",
-        "message": "Galactic Backend is running successfully.",
-        "usage": "Send requests to /api/get-video?url=YOUR_VIDEO_URL"
-    })
+    return jsonify({"status": "Alive", "usage": "/api/get-video?url=..."})
 
-# --- 2. THE DOWNLOAD ROUTE ---
 @app.route('/api/get-video', methods=['GET'])
 def get_video():
     url = request.args.get('url')
@@ -40,34 +33,40 @@ def get_video():
             'geo_bypass': True,
             'nocheckcertificate': True,
             'ignoreerrors': True,
-            'simulate': True, 
+            'simulate': True,
             'skip_download': True,
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
+            
+            # --- FIX FOR NONETYPE ERROR ---
+            if info is None:
+                return jsonify({'status': 'error', 'message': 'The video platform blocked the request or the video is private.'}), 500
+            
+            # Smart URL extraction
             download_url = info.get('url', None)
             
+            # If standard url failed, check entries (common for playlists/TikTok)
             if not download_url and 'entries' in info:
-                try: download_url = info['entries'][0].get('url')
-                except: pass
+                entries = info.get('entries', [])
+                if entries and entries[0]:
+                    download_url = entries[0].get('url')
 
             if not download_url:
-                 return jsonify({'status': 'error', 'message': 'Could not extract link.'}), 500
+                 return jsonify({'status': 'error', 'message': 'Video found but no download link available.'}), 500
 
-            response = jsonify({
+            return jsonify({
                 'status': 'success',
                 'title': info.get('title', 'Galactic Video'),
                 'thumbnail': info.get('thumbnail', ''),
                 'download_url': download_url
             })
-            return response
 
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
-# --- 3. CONTACT ROUTE ---
 @app.route('/api/contact', methods=['POST'])
 def contact():
     return jsonify({'status': 'success', 'message': 'Message received'})
