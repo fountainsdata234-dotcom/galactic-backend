@@ -4,55 +4,45 @@ import requests
 import json
 
 app = Flask(__name__)
-# Allow requests from your Netlify Frontend
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 @app.route('/', methods=['GET'])
 def home():
-    return jsonify({"status": "Alive", "message": "Galactic Backend is running."})
+    return jsonify({"status": "Alive", "system": "XTRACTION Core Online"})
 
-# --- SPECIALIZED TIKTOK HANDLER ---
+# --- 1. TIKTOK HANDLER (TikWM) ---
 def handle_tiktok(url):
     try:
         api_url = "https://www.tikwm.com/api/"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36"}
         data = { "url": url, "count": 12, "cursor": 0, "web": 1, "hd": 1 }
         
         response = requests.post(api_url, data=data, headers=headers)
         json_data = response.json()
         
         if json_data.get('code') == 0:
-            video_data = json_data.get('data', {})
+            d = json_data.get('data', {})
+            # Prefer HD link, fallback to standard. 
+            # TikWM links are usually MP4 (Video+Audio).
+            final_url = d.get('hdplay') or d.get('play') or d.get('wmplay')
+            cover = d.get('cover') or d.get('origin_cover')
             
-            # IMPROVED EXTRACTION: Try HD first, then Play, then WM
-            # We explicitly prefer the 'hdplay' or 'play' link
-            final_url = video_data.get('hdplay') or video_data.get('play') or video_data.get('wmplay')
-            
-            # Use default galaxy icon if cover is missing/broken
-            cover = video_data.get('cover')
-            if not cover: 
-                cover = "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
-
-            if final_url:
-                # IMPORTANT: Ensure URL is absolute (TikWM sometimes sends relative paths)
-                if not final_url.startswith('http'):
-                    final_url = "https://www.tikwm.com" + final_url
-
-                return {
-                    'status': 'success',
-                    'title': video_data.get('title', 'Galactic TikTok'),
-                    'thumbnail': cover,
-                    'download_url': final_url
-                }
+            if final_url and not final_url.startswith('http'):
+                final_url = "https://www.tikwm.com" + final_url
+                
+            return {
+                'status': 'success',
+                'title': d.get('title', 'XTRACTION_Video'),
+                'thumbnail': cover,
+                'download_url': final_url,
+                'platform': 'TikTok'
+            }
         return None
-    except Exception as e:
-        print(f"TikTok API Error: {str(e)}")
-        return None
+    except: return None
 
-# --- COBALT ROTATION (Others) ---
+# --- 2. COBALT HANDLER (Everything Else) ---
 def handle_cobalt(url):
+    # Server Rotation to avoid blocks
     instances = [
         "https://api.cobalt.tools/api/json",
         "https://cobalt.xyzen.tech/api/json",
@@ -62,30 +52,37 @@ def handle_cobalt(url):
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0"
+        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
     }
     
+    # CRITICAL FIX: "vCodec": "h264" ensures it is MP4 VIDEO, not WebM or Audio.
     payload = {
-        "url": url, "vCodec": "h264", "vQuality": "720", "isAudioOnly": False, "isNoTTWatermark": True
+        "url": url,
+        "vCodec": "h264", 
+        "vQuality": "720",
+        "isAudioOnly": False,
+        "isNoTTWatermark": True
     }
 
     for instance in instances:
         try:
-            response = requests.post(instance, json=payload, headers=headers, timeout=15)
+            response = requests.post(instance, json=payload, headers=headers, timeout=20)
             if response.status_code == 200:
                 data = response.json()
                 
-                dl_link = None
-                if data.get('status') == 'stream': dl_link = data.get('url')
-                elif data.get('status') == 'picker': dl_link = data.get('picker')[0].get('url')
-                elif data.get('status') == 'redirect': dl_link = data.get('url')
+                # Logic to extract URL
+                link = None
+                if data.get('status') == 'stream': link = data.get('url')
+                elif data.get('status') == 'picker': link = data.get('picker')[0].get('url')
+                elif data.get('status') == 'redirect': link = data.get('url')
                 
-                if dl_link:
+                if link:
                     return {
                         'status': 'success',
-                        'title': data.get('filename', 'Galactic Video'),
-                        'thumbnail': 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
-                        'download_url': dl_link
+                        'title': data.get('filename', 'XTRACTION_Video'),
+                        'thumbnail': 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', # Cobalt rarely gives thumbs, handled in Frontend
+                        'download_url': link,
+                        'platform': 'Universal'
                     }
         except: continue
     return None
@@ -96,11 +93,12 @@ def get_video():
     if not url: return jsonify({'status': 'error', 'message': 'No URL provided'}), 400
 
     result = None
+    # Routing Logic
     if "tiktok.com" in url: result = handle_tiktok(url)
     if not result: result = handle_cobalt(url)
 
     if result: return jsonify(result)
-    else: return jsonify({'status': 'error', 'message': 'Could not extract video.'}), 500
+    else: return jsonify({'status': 'error', 'message': 'Extraction Failed. Link invalid or protected.'}), 500
 
 @app.route('/api/contact', methods=['POST'])
 def contact(): return jsonify({'status': 'success'})
